@@ -4,9 +4,9 @@ export const MATERIALS: Material[] = [
   // 5 metales predeterminados al iniciar
   { id: 'aisi-1020', name: 'Acero AISI 1020', shortName: 'Acero 1020', group: 'Acero al carbono', E: 203, sigmaY: 295, sigmaUTS: 395, elongation: 25, nu: 0.29, behavior: 'ductile', isDefault: true },
   { id: 'al-6061-t6', name: 'Aluminio 6061-T6 (ref. PASCO)', shortName: 'Aluminio', group: 'Aleación de aluminio', E: 68.9, sigmaY: 276, sigmaUTS: 310, elongation: 17, nu: 0.33, behavior: 'ductile', isDefault: true },
-  { id: 'c83600', name: 'Bronce SAE 40 (C83600)', shortName: 'Bronce SAE 40', group: 'Aleación de cobre', E: 103, sigmaY: 138, sigmaUTS: 262, elongation: 30, nu: 0.33, behavior: 'ductile', isDefault: true },
+  { id: 'c83600', name: 'Bronce SAE 40 (C83600)', shortName: 'Bronce SAE 40', group: 'Aleación de cobre', E: 103, sigmaY: 138, sigmaUTS: 262, elongation: 35, nu: 0.33, behavior: 'ductile', isDefault: true },
   { id: 'c11000', name: 'Cobre C11000', shortName: 'Cobre', group: 'Aleación de cobre', E: 117, sigmaY: 69, sigmaUTS: 220, elongation: 45, nu: 0.34, behavior: 'ductile', isDefault: true },
-  { id: 'c36000', name: 'Latón C36000', shortName: 'Latón', group: 'Aleación de cobre', E: 97, sigmaY: 310, sigmaUTS: 340, elongation: 25, nu: 0.34, behavior: 'ductile', isDefault: true },
+  { id: 'c36000', name: 'Latón C36000', shortName: 'Latón', group: 'Aleación de cobre', E: 97, sigmaY: 310, sigmaUTS: 340, elongation: 18, nu: 0.34, behavior: 'ductile', isDefault: true },
   // Catálogo amplio adicional
   { id: 'aisi-1018', name: 'Acero AISI 1018', shortName: 'Acero 1018', group: 'Acero al carbono', E: 205, sigmaY: 370, sigmaUTS: 440, elongation: 15, nu: 0.29, behavior: 'ductile' },
   { id: 'aisi-1018-annealed', name: 'Acero AISI 1018 recocido', shortName: 'Acero 1018 recocido', group: 'Acero al carbono', E: 205, sigmaY: 220, sigmaUTS: 340, elongation: 30, nu: 0.29, behavior: 'ductile' },

@@ -43,14 +43,6 @@ export function validateSpecimen(s: Specimen): ValidationIssue[] {
   return issues;
 }
 
-function hollomonExponent(e: number): number {
-  if (e < 3) return 0.04;
-  if (e < 8) return 0.08;
-  if (e < 15) return 0.12;
-  if (e < 25) return 0.18;
-  return 0.24;
-}
-
 function resolveMaterial(s: Specimen): Material {
   if (s.useCustom) {
     const base = getMaterial(s.materialId);
@@ -79,24 +71,39 @@ export function computeResults(s: Specimen): SpecimenResults {
   const ductile = behavior === 'ductile' && m.elongation > 5;
 
   const epsY = m.sigmaY / E_MPa;
-  const epsU = Math.max(epsY * 1.05, elongFrac * 0.55);
-  const epsF = Math.max(elongFrac, epsU * 1.05);
-  const n = ductile ? hollomonExponent(m.elongation) : 0.02;
-  void n;
-  const sigmaF = ductile ? m.sigmaUTS * 0.82 : m.sigmaUTS * 0.97;
+  const epsU = ductile
+    ? Math.max(epsY * 1.12, elongFrac * 0.58)
+    : Math.max(epsY * 1.03, elongFrac * 0.82);
+  const epsF = Math.max(elongFrac, epsU * 1.04);
+  const sigmaF = ductile ? m.sigmaUTS * 0.78 : m.sigmaUTS * 0.96;
+  const fractureBand = Math.max(0.0015, Math.min(0.018, epsF * (ductile ? 0.035 : 0.012)));
 
   const keys: CurveKeyPoints = { epsY, epsU, epsF, sigmaF };
+
+  const smoothstep = (value: number): number => {
+    const t = Math.max(0, Math.min(1, value));
+    return t * t * (3 - 2 * t);
+  };
 
   const stressAt = (eps: number): number | null => {
     if (eps < 0 || eps > epsF) return null;
     if (eps <= epsY) return E_MPa * eps;
-    if (eps <= epsU) {
-      const t = (eps - epsY) / (epsU - epsY);
-      return m.sigmaY + (m.sigmaUTS - m.sigmaY) * (3 * t * t - 2 * t * t * t);
+
+    const fractureStart = Math.max(epsU, epsF - fractureBand);
+    if (eps <= fractureStart) {
+      const t = (eps - epsY) / Math.max(fractureStart - epsY, 1e-9);
+      const transition = smoothstep(t);
+      const hardening = Math.pow(transition, ductile ? 0.72 : 0.92);
+      const stress = m.sigmaY + (m.sigmaUTS - m.sigmaY) * hardening;
+      return Math.min(m.sigmaUTS, Math.max(m.sigmaY, stress));
     }
-    const t = (eps - epsU) / (epsF - epsU);
-    if (!ductile) return m.sigmaUTS * (1 - 0.03 * t);
-    return m.sigmaUTS - (m.sigmaUTS - sigmaF) * Math.pow(t, 1.4);
+
+    if (eps < epsF) {
+      const t = smoothstep((eps - fractureStart) / Math.max(epsF - fractureStart, 1e-9));
+      const necking = ductile ? Math.pow(t, 0.72) : t;
+      return sigmaF * (1 - necking);
+    }
+    return 0;
   };
 
   const Fy = m.sigmaY * A0;

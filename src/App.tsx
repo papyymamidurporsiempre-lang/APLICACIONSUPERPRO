@@ -8,13 +8,14 @@ import ResultsPanel from '@/components/ResultsPanel';
 import ChartsPanel from '@/components/ChartsPanel';
 import StandardTab from '@/components/StandardTab';
 import FormulasTab from '@/components/FormulasTab';
+import AnovaTab from '@/components/AnovaTab';
 import { useSpecimens, type ComputedItem } from '@/hooks/useSpecimens';
 import { useSimulation } from '@/hooks/useSimulation';
 import { validateSpecimen, DEFAULT_SCREW_SPEED, strainRate } from '@/lib/engine';
 import { exportSummaryCSV } from '@/lib/csv';
 import type { Specimen } from '@/types';
 
-type Tab = 'lab' | 'standard' | 'formulas';
+type Tab = 'lab' | 'standard' | 'formulas' | 'anova';
 
 export default function App() {
   const [dark, setDark] = useState(true);
@@ -139,6 +140,7 @@ export default function App() {
           ['lab', 'Laboratorio'],
           ['standard', 'Norma ASTM E8/E8M'],
           ['formulas', 'Fórmulas y Propiedades'],
+          ['anova', 'ANOVA'],
         ] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
@@ -159,6 +161,10 @@ export default function App() {
       ) : tab === 'formulas' ? (
         <main className="flex-1">
           <FormulasTab />
+        </main>
+      ) : tab === 'anova' ? (
+        <main className="flex-1">
+          <AnovaTab specimens={specimens} time={sim.time} speed={sim.speed} screwSpeed={screwSpeed} />
         </main>
       ) : (
         <main className="flex min-h-0 flex-1 flex-col xl:flex-row">
