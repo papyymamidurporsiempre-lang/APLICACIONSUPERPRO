@@ -43,14 +43,6 @@ export function validateSpecimen(s: Specimen): ValidationIssue[] {
   return issues;
 }
 
-function hollomonExponent(e: number): number {
-  if (e < 3) return 0.04;
-  if (e < 8) return 0.08;
-  if (e < 15) return 0.12;
-  if (e < 25) return 0.18;
-  return 0.24;
-}
-
 function resolveMaterial(s: Specimen): Material {
   if (s.useCustom) {
     const base = getMaterial(s.materialId);
@@ -70,6 +62,12 @@ function resolveMaterial(s: Specimen): Material {
   return getMaterial(s.materialId);
 }
 
+// Smoothstep: transición cúbica suave entre 0 y 1
+function smoothstep(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * (3 - 2 * c);
+}
+
 export function computeResults(s: Specimen): SpecimenResults {
   const m = resolveMaterial(s);
   const A0 = s.geometry === 'cylindrical' ? (Math.PI / 4) * s.d0 * s.d0 : s.w0 * s.t0;
@@ -79,24 +77,49 @@ export function computeResults(s: Specimen): SpecimenResults {
   const ductile = behavior === 'ductile' && m.elongation > 5;
 
   const epsY = m.sigmaY / E_MPa;
-  const epsU = Math.max(epsY * 1.05, elongFrac * 0.55);
-  const epsF = Math.max(elongFrac, epsU * 1.05);
-  const n = ductile ? hollomonExponent(m.elongation) : 0.02;
-  void n;
+  // epsU: deformación en UTS — proporcional a la ductilidad real
+  const epsU = ductile
+    ? Math.max(epsY * 1.1, elongFrac * 0.6)
+    : Math.max(epsY * 1.02, elongFrac * 0.85);
+  const epsF = Math.max(elongFrac, epsU * 1.02);
   const sigmaF = ductile ? m.sigmaUTS * 0.82 : m.sigmaUTS * 0.97;
 
   const keys: CurveKeyPoints = { epsY, epsU, epsF, sigmaF };
 
+  // Curva suave tipo Ramberg-Osgood:
+  // - Zona elástica lineal (0 → epsY)
+  // - Transición redondeada en fluencia usando smoothstep (epsY → epsU)
+  // - Caída suave por estricción con curvatura exponencial (epsU → epsF)
+  // Exponente de endurecimiento plástico adaptado a la ductilidad del material
+  const nHardening = ductile
+    ? Math.max(0.08, Math.min(0.35, 0.1 + elongFrac * 1.2))
+    : 0.04;
+
   const stressAt = (eps: number): number | null => {
-    if (eps < 0 || eps > epsF) return null;
-    if (eps <= epsY) return E_MPa * eps;
-    if (eps <= epsU) {
-      const t = (eps - epsY) / (epsU - epsY);
-      return m.sigmaY + (m.sigmaUTS - m.sigmaY) * (3 * t * t - 2 * t * t * t);
+    if (eps < 0 || eps > epsF * 1.0001) return null;
+    if (eps <= epsY) {
+      // Zona elástica lineal pura
+      return E_MPa * eps;
     }
-    const t = (eps - epsU) / (epsF - epsU);
-    if (!ductile) return m.sigmaUTS * (1 - 0.03 * t);
-    return m.sigmaUTS - (m.sigmaUTS - sigmaF) * Math.pow(t, 1.4);
+    if (eps <= epsU) {
+      // Transición elástica-plástica suave (Ramberg-Osgood)
+      // Mezcla la pendiente elástica con endurecimiento plástico progresivo
+      const t = (eps - epsY) / Math.max(epsU - epsY, 1e-9);
+      const smoothT = smoothstep(t);
+      const plasticStress = m.sigmaY + (m.sigmaUTS - m.sigmaY) * Math.pow(smoothT, nHardening / 0.2);
+      // Combina pendiente elástica con respuesta plástica para transición C1-continua
+      const elasticContrib = E_MPa * eps;
+      return elasticContrib * (1 - smoothT) + plasticStress * smoothT;
+    }
+    // Caída post-UTS por estricción: exponencial suave hacia sigmaF
+    const t = (eps - epsU) / Math.max(epsF - epsU, 1e-9);
+    if (!ductile) {
+      // Frágil: caída muy corta y casi lineal
+      return m.sigmaUTS * (1 - (1 - sigmaF / m.sigmaUTS) * smoothstep(t));
+    }
+    // Dúctil: caída suave con curvatura exponencial
+    const drop = 1 - Math.pow(t, 1.6);
+    return sigmaF + (m.sigmaUTS - sigmaF) * drop;
   };
 
   const Fy = m.sigmaY * A0;
