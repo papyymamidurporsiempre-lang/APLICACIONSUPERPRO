@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --lab-bg: 10 16 25;
+  --lab-panel: 16 25 37;
+  --lab-raised: 23 35 50;
+  --lab-line: 38 53 71;
+  --lab-text: 230 237 245;
+  --lab-muted: 138 160 184;
+  --lab-accent: 34 211 238;
+}
+
+html.light {
+  --lab-bg: 240 244 249;
+  --lab-panel: 255 255 255;
+  --lab-raised: 226 232 240;
+  --lab-line: 203 213 225;
+  --lab-text: 15 23 42;
+  --lab-muted: 71 85 105;
+  --lab-accent: 8 145 178;
+}
+
+body {
+  @apply bg-lab-bg text-lab-text antialiased;
+  font-feature-settings: 'tnum' 1;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--lab-line));
+  border-radius: 6px;
+}
+
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
