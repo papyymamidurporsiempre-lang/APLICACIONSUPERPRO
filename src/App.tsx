@@ -7,13 +7,14 @@ import SpecimenStage from '@/components/SpecimenStage';
 import ResultsPanel from '@/components/ResultsPanel';
 import ChartsPanel from '@/components/ChartsPanel';
 import StandardTab from '@/components/StandardTab';
-import { useSpecimens } from '@/hooks/useSpecimens';
+import FormulasTab from '@/components/FormulasTab';
+import { useSpecimens, type ComputedItem } from '@/hooks/useSpecimens';
 import { useSimulation } from '@/hooks/useSimulation';
 import { validateSpecimen, DEFAULT_SCREW_SPEED, strainRate } from '@/lib/engine';
 import { exportSummaryCSV } from '@/lib/csv';
 import type { Specimen } from '@/types';
 
-type Tab = 'lab' | 'standard';
+type Tab = 'lab' | 'standard' | 'formulas';
 
 export default function App() {
   const [dark, setDark] = useState(true);
@@ -75,6 +76,58 @@ export default function App() {
     });
   };
 
+  // Tiempo total del ensayo basado en la probeta más dúctil
+  const totalTime = useMemo(() => {
+    let maxEpsF = 0;
+    let refL0 = 0;
+    validItems.forEach(({ specimen, results }) => {
+      const epsF = results?.keys?.epsF ?? 0;
+      if (epsF > maxEpsF) {
+        maxEpsF = epsF;
+        refL0 = specimen.L0;
+      }
+    });
+    if (maxEpsF <= 0 || refL0 <= 0) return 0;
+    const rate = strainRate(screwSpeed, refL0);
+    return rate > 0 ? maxEpsF / rate : 0;
+  }, [validItems, screwSpeed]);
+
+  // Valores actuales para el deslizador: usar la probeta de referencia (más dúctil)
+  const refSpecimen = useMemo(() => {
+    let best: ComputedItem | null = null;
+    let maxEpsF = 0;
+    validItems.forEach((it) => {
+      const epsF = it.results?.keys?.epsF ?? 0;
+      if (epsF > maxEpsF) {
+        maxEpsF = epsF;
+        best = it;
+      }
+    });
+    return best;
+  }, [validItems]);
+
+  const currentEps = useMemo(() => {
+    const ref = refSpecimen as ComputedItem | null;
+    if (!ref) return 0;
+    return Math.min(
+      strainRate(screwSpeed, ref.specimen.L0) * sim.time * sim.speed,
+      ref.results?.keys?.epsF ?? 0
+    );
+  }, [refSpecimen, sim.time, sim.speed, screwSpeed]);
+
+  const { currentSig, currentF } = useMemo(() => {
+    const ref = refSpecimen as ComputedItem | null;
+    if (!ref || !ref.results) return { currentSig: 0, currentF: 0 };
+    const sig = ref.results.stressAt(currentEps);
+    const s = sig ?? 0;
+    return { currentSig: s, currentF: s * ref.results.A0 };
+  }, [refSpecimen, currentEps]);
+
+  const handleScrub = (t: number) => {
+    if (sim.running) sim.stop();
+    sim.setTime(t);
+  };
+
   const singleId = singleMode ? selectedId : null;
 
   return (
@@ -85,6 +138,7 @@ export default function App() {
         {([
           ['lab', 'Laboratorio'],
           ['standard', 'Norma ASTM E8/E8M'],
+          ['formulas', 'Fórmulas y Propiedades'],
         ] as [Tab, string][]).map(([t, label]) => (
           <button
             key={t}
@@ -102,6 +156,10 @@ export default function App() {
         <main className="flex-1">
           <StandardTab />
         </main>
+      ) : tab === 'formulas' ? (
+        <main className="flex-1">
+          <FormulasTab />
+        </main>
       ) : (
         <main className="flex min-h-0 flex-1 flex-col xl:flex-row">
           <aside className="w-full border-b border-lab-line xl:h-[calc(100vh-113px)] xl:w-80 xl:border-b-0 xl:border-r">
@@ -118,12 +176,17 @@ export default function App() {
               screwSpeed={screwSpeed}
               complianceOn={complianceOn}
               maxForce={maxForce}
+              totalTime={totalTime}
+              currentEps={currentEps}
+              currentSig={currentSig}
+              currentF={currentF}
               onStart={sim.start}
               onPause={sim.stop}
               onReset={sim.reset}
               onSpeed={sim.setSpeed}
               onScrewSpeed={setScrewSpeed}
               onCompliance={setComplianceOn}
+              onScrub={handleScrub}
             />
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-6">
@@ -136,7 +199,7 @@ export default function App() {
                 onSelect={setSelectedId}
               />
 
-              <div className="rounded-lg border border-lab-line bg-lab-panel" style={{ height: 380 }}>
+              <div className="rounded-lg border border-lab-line bg-lab-panel" style={{ height: 460 }}>
                 <ChartsPanel
                   items={validItems}
                   time={sim.time}

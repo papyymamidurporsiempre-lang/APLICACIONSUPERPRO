@@ -1,7 +1,7 @@
-import { Play, Pause, RotateCcw, Gauge, AlertTriangle, Wrench } from 'lucide-react';
+import { Play, Pause, RotateCcw, Gauge, AlertTriangle, Wrench, FastForward } from 'lucide-react';
 import { SPECIMEN_COLORS, PASCO_CELL_LIMIT_N } from '@/data/materials';
 import type { Specimen } from '@/types';
-import { SCREW_SPEED_MIN, SCREW_SPEED_MAX } from '@/lib/engine';
+import { SCREW_SPEED_MIN, SCREW_SPEED_MAX, strainRate } from '@/lib/engine';
 
 interface Props {
   specimens: Specimen[];
@@ -12,23 +12,32 @@ interface Props {
   screwSpeed: number;
   complianceOn: boolean;
   maxForce: number;
+  totalTime: number;
+  currentEps: number;
+  currentSig: number;
+  currentF: number;
   onStart: () => void;
   onPause: () => void;
   onReset: () => void;
   onSpeed: (v: number) => void;
   onScrewSpeed: (v: number) => void;
   onCompliance: (v: boolean) => void;
+  onScrub: (time: number) => void;
 }
 
 const SPEEDS = [1, 2, 3, 5, 20];
 
 export default function TestControls({
   specimens, running, speed, time, progress, screwSpeed, complianceOn, maxForce,
-  onStart, onPause, onReset, onSpeed, onScrewSpeed, onCompliance,
+  totalTime, currentEps, currentSig, currentF,
+  onStart, onPause, onReset, onSpeed, onScrewSpeed, onCompliance, onScrub,
 }: Props) {
   const cellExceeded = maxForce >= PASCO_CELL_LIMIT_N;
   const cellNear = maxForce >= PASCO_CELL_LIMIT_N * 0.9;
   const fmtForce = maxForce >= 1000 ? `${(maxForce / 1000).toFixed(2)} kN` : `${maxForce.toFixed(0)} N`;
+  const fmtCurrentF = currentF >= 1000 ? `${(currentF / 1000).toFixed(2)} kN` : `${currentF.toFixed(0)} N`;
+  const scrubMax = totalTime > 0 ? totalTime : 1;
+  const scrubValue = Math.min(time, scrubMax);
 
   return (
     <div className="border-b border-lab-line bg-lab-panel px-4 py-3 md:px-6">
@@ -109,6 +118,7 @@ export default function TestControls({
           </div>
         )}
 
+        {/* Barra de progreso compacta + leyenda de colores */}
         <div className="ml-auto flex items-center gap-3">
           <div className="hidden items-center gap-2 lg:flex">
             {specimens.slice(0, 6).map((s, i) => (
@@ -130,6 +140,34 @@ export default function TestControls({
               <span>t = {time.toFixed(1)} s</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Deslizador interactivo de avance del ensayo */}
+      <div className="mt-3 rounded-md border border-lab-line bg-lab-raised/40 px-3 py-2.5">
+        <div className="mb-1.5 flex items-center gap-2">
+          <FastForward size={13} className="text-cyan-500" />
+          <span className="text-[11px] font-semibold text-lab-text">Avance del ensayo</span>
+          <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-0.5 font-mono text-[10px] text-lab-muted">
+            <span>t: <span className="text-lab-text">{time.toFixed(1)} s</span> / {scrubMax.toFixed(1)} s</span>
+            <span>ε: <span className="text-lab-text">{(currentEps * 100).toFixed(2)} %</span></span>
+            <span>σ: <span className="text-lab-text">{currentSig.toFixed(0)} MPa</span></span>
+            <span>F: <span className="text-lab-text">{fmtCurrentF}</span></span>
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={scrubMax}
+          step={0.05}
+          value={scrubValue}
+          onChange={(e) => onScrub(parseFloat(e.target.value))}
+          className="h-2 w-full accent-cyan-500"
+        />
+        <div className="mt-1 flex justify-between font-mono text-[9px] text-lab-muted">
+          <span>0 s</span>
+          <span>{progress >= 1 ? 'Fractura' : `${Math.round(progress * 100)}%`}</span>
+          <span>{scrubMax.toFixed(1)} s</span>
         </div>
       </div>
     </div>

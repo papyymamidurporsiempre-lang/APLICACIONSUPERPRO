@@ -55,6 +55,7 @@ export function useSimulation(specimens: Specimen[], validCount: number, screwSp
       setTime(0);
     },
     setSpeed,
+    setTime,
     epsFor,
   };
 }

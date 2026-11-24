@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import {
-  ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceDot, Label,
+  ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot, Label,
 } from 'recharts';
 import { ZoomIn, ZoomOut } from 'lucide-react';
 import { SPECIMEN_COLORS, PASCO_CELL_LIMIT_N } from '@/data/materials';
@@ -80,11 +80,9 @@ function xAt(pt: CurvePoint | undefined, chartType: string, complianceOn: boolea
   return complianceOn ? pt.dLscrew : pt.dL;
 }
 
-// Devuelve el índice del último punto de la curva cuyo eps <= epsLimit.
 function lastIndexForEps(full: CurvePoint[], epsLimit: number): number {
   if (full.length === 0) return -1;
   if (epsLimit <= 0) return 0;
-  // Búsqueda binaria aproximada
   let lo = 0;
   let hi = full.length - 1;
   while (lo < hi) {
@@ -93,6 +91,37 @@ function lastIndexForEps(full: CurvePoint[], epsLimit: number): number {
     else hi = mid - 1;
   }
   return lo;
+}
+
+// Genera ticks regulares y limpias para el eje X
+function buildXTicks(xMax: number, isStrain: boolean): number[] {
+  if (xMax <= 0) return [0];
+  if (isStrain) {
+    // Deformación en %: intervalos de 5 o 10 según el rango
+    const step = xMax > 30 ? 10 : 5;
+    const ticks: number[] = [];
+    for (let v = 0; v <= xMax + step * 0.5; v += step) {
+      ticks.push(Math.round(v * 10) / 10);
+    }
+    return ticks;
+  }
+  // Desplazamiento en mm: ~8 divisiones uniformes
+  const targetCount = 8;
+  const rawStep = xMax / targetCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const niceSteps = [1, 2, 2.5, 5, 10];
+  let step = magnitude * niceSteps[niceSteps.length - 1];
+  for (const ns of niceSteps) {
+    if (magnitude * ns >= rawStep) {
+      step = magnitude * ns;
+      break;
+    }
+  }
+  const ticks: number[] = [];
+  for (let v = 0; v <= xMax + step * 0.5; v += step) {
+    ticks.push(Math.round(v * 100) / 100);
+  }
+  return ticks;
 }
 
 export default function ChartsPanel({
@@ -110,7 +139,6 @@ export default function ChartsPanel({
     }
     const isStrain = chartType === 'stress-strain';
 
-    // xMax basado en la deformación máxima completa de todas las curvas mostradas
     const fullXMax = isStrain
       ? Math.max(...bundles.map((b) => (b.full[b.full.length - 1]?.eps ?? 0) * 100), 0.1)
       : Math.max(...bundles.map((b) => {
@@ -120,8 +148,6 @@ export default function ChartsPanel({
 
     const xEffective = zoomElastic ? fullXMax * 0.12 : fullXMax;
 
-    // Construir filas combinadas: para cada valor x, cada probeta contribuye su valor
-    // sólo si su deformación actual ha alcanzado ese x.
     const N = 300;
     const rows: XY[] = [];
     for (let i = 0; i <= N; i++) {
@@ -134,7 +160,6 @@ export default function ChartsPanel({
           const epsLimit = b.epsNow;
           const epsTarget = x / 100;
           if (epsTarget > epsLimit) {
-            // esta probeta aún no alcanza este x -> null (trazo se detiene)
             row[b.specimenId] = null;
             return;
           }
@@ -142,7 +167,6 @@ export default function ChartsPanel({
           if (val !== null) { row[b.specimenId] = val; has = true; }
           else row[b.specimenId] = null;
         } else {
-          // F vs desplazamiento: limitar por desplazamiento equivalente a epsNow
           const dLimit = computeDisplacementLimit(b, complianceOn);
           if (x > dLimit) {
             row[b.specimenId] = null;
@@ -156,7 +180,6 @@ export default function ChartsPanel({
       if (has) rows.push(row);
     }
 
-    // yMax: máximo valor considerando sólo la parte ya trazada
     let mx = 0;
     bundles.forEach((b) => {
       if (b.full.length === 0) return;
@@ -171,21 +194,22 @@ export default function ChartsPanel({
     return { data: rows, xMax: xEffective, yMax: mx, singleBundle: bundles[0] ?? null };
   }, [bundles, chartType, stressKind, complianceOn, zoomElastic]);
 
-  const xLabel = chartType === 'stress-strain' ? 'Deformación ε (%)' : (complianceOn ? 'Desplazamiento rosca (mm)' : 'Alargamiento ΔL (mm)');
-  const yLabel = chartType === 'stress-strain' ? (stressKind === 'true' ? 'Esfuerzo real σ (MPa)' : 'Esfuerzo ing. σ (MPa)') : 'Fuerza F (N)';
+  const isStrain = chartType === 'stress-strain';
+  const xLabel = isStrain ? 'Deformación ε (%)' : (complianceOn ? 'Desplazamiento rosca (mm)' : 'Alargamiento ΔL (mm)');
+  const yLabel = isStrain ? (stressKind === 'true' ? 'Esfuerzo real σ (MPa)' : 'Esfuerzo ing. σ (MPa)') : 'Fuerza F (N)';
+  const xTicks = useMemo(() => buildXTicks(xMax, isStrain), [xMax, isStrain]);
+  const xTickFormatter = (v: number) => v.toFixed(1);
 
-  // Área de resiliencia y tenacidad para modo individual (stress-strain)
   const areaData = useMemo(() => {
-    if (!singleBundle || chartType !== 'stress-strain') return null;
+    if (!singleBundle || !isStrain) return null;
     const { full, results } = singleBundle;
     const epsY = results.keys.epsY;
     const epsF = results.keys.epsF;
     const resilienceArea = full.filter((p) => p.eps <= epsY).map((p) => ({ x: p.eps * 100, y: stressKind === 'true' ? p.sigTrue : p.sig }));
     const toughnessArea = full.filter((p) => p.eps <= epsF).map((p) => ({ x: p.eps * 100, y: stressKind === 'true' ? p.sigTrue : p.sig }));
     return { resilienceArea, toughnessArea };
-  }, [singleBundle, chartType, stressKind]);
+  }, [singleBundle, isStrain, stressKind]);
 
-  // Marcadores de fractura: un punto destacado al final del trazo de cada probeta rota
   const fractureMarkers = useMemo(() => {
     const markers: { id: string; x: number; y: number; colorIdx: number }[] = [];
     bundles.forEach((b) => {
@@ -208,7 +232,7 @@ export default function ChartsPanel({
       <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2">
         <h2 className="mr-auto text-sm font-semibold">Gráficas comparativas</h2>
         <Seg options={[{ v: 'stress-strain', l: 'σ – ε' }, { v: 'force-elong', l: 'F – ΔL' }]} value={chartType} onChange={(v) => onChartType(v as any)} />
-        {chartType === 'stress-strain' && (
+        {isStrain && (
           <Seg options={[{ v: 'engineering', l: 'Ingeniería' }, { v: 'true', l: 'Real' }]} value={stressKind} onChange={(v) => onStressKind(v as any)} />
         )}
         <button
@@ -221,27 +245,32 @@ export default function ChartsPanel({
         </button>
       </div>
 
-      <div className="min-h-[300px] flex-1 px-3 pb-3">
-        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-          <ComposedChart data={data} margin={{ top: 12, right: 28, bottom: 28, left: 18 }}>
+      {/* Contenedor del gráfico: deja espacio inferior amplio para título del eje X */}
+      <div className="min-h-[280px] flex-1 px-3">
+        <ResponsiveContainer width="100%" height="100%" minHeight={280}>
+          <ComposedChart data={data} margin={{ top: 12, right: 28, bottom: 75, left: 18 }}>
             <CartesianGrid stroke="rgb(var(--lab-line))" strokeDasharray="3 3" strokeOpacity={0.5} />
             <XAxis
               dataKey="x"
               type="number"
               domain={[0, xMax]}
+              ticks={xTicks}
+              tickFormatter={xTickFormatter}
               tick={{ fill: 'rgb(var(--lab-muted))', fontSize: 10, fontFamily: 'JetBrains Mono' }}
               tickMargin={8}
             >
-              <Label value={xLabel} position="insideBottom" offset={-16} fill="rgb(var(--lab-muted))" fontSize={11} />
+              {/* Título del eje X colocado justo debajo de los valores numéricos */}
+              <Label value={xLabel} position="insideBottom" offset={-40} fill="rgb(var(--lab-text))" fontSize={12} fontWeight={600} />
             </XAxis>
             <YAxis
               domain={[0, yMax * 1.08]}
               tick={{ fill: 'rgb(var(--lab-muted))', fontSize: 10, fontFamily: 'JetBrains Mono' }}
               tickMargin={6}
             >
-              <Label value={yLabel} angle={-90} position="insideLeft" offset={6} fill="rgb(var(--lab-muted))" fontSize={11} />
+              <Label value={yLabel} angle={-90} position="insideLeft" offset={6} fill="rgb(var(--lab-text))" fontSize={11} />
             </YAxis>
             <Tooltip
+              cursor={{ stroke: 'rgb(var(--lab-muted))', strokeWidth: 1, strokeDasharray: '4 4' }}
               contentStyle={{
                 background: 'rgb(var(--lab-panel))',
                 border: '1px solid rgb(var(--lab-line))',
@@ -249,11 +278,13 @@ export default function ChartsPanel({
                 fontSize: 11,
                 fontFamily: 'JetBrains Mono',
                 color: 'rgb(var(--lab-text))',
+                // Evita que el tooltip tape los valores/título del eje X
+                zIndex: 50,
               }}
-              labelFormatter={(v) => `${xLabel.split(' ')[0]}: ${Number(v).toFixed(3)}`}
+              wrapperStyle={{ zIndex: 50 }}
+              labelFormatter={(v) => `${xLabel.split(' ')[0]}: ${Number(v).toFixed(1)}`}
               formatter={(value: any, name: any) => [Number(value).toFixed(1), String(name)]}
             />
-            <Legend wrapperStyle={{ fontSize: 10, color: 'rgb(var(--lab-muted))', paddingTop: 4 }} />
 
             {/* Áreas de resiliencia y tenacidad (modo individual) */}
             {areaData && (
@@ -264,7 +295,7 @@ export default function ChartsPanel({
             )}
 
             {/* Línea de límite de celda PASCO (sólo F-ΔL) */}
-            {chartType === 'force-elong' && (
+            {!isStrain && (
               <ReferenceLine y={PASCO_CELL_LIMIT_N} stroke="#ef4444" strokeDasharray="6 4" strokeWidth={1.5}>
                 <Label value={`Límite celda ${PASCO_CELL_LIMIT_N / 1000} kN`} position="insideTopRight" fill="#ef4444" fontSize={10} />
               </ReferenceLine>
@@ -300,11 +331,34 @@ export default function ChartsPanel({
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Barra de leyenda separada debajo del gráfico, con flex-wrap */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-lab-line px-4 py-2.5">
+        {bundles.map((b) => (
+          <span key={b.specimenId} className="flex items-center gap-1.5 text-[10px] text-lab-muted">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SPECIMEN_COLORS[b.colorIdx % 6] }} />
+            {b.label}
+            {b.broken && <span className="text-red-400">· rotura</span>}
+          </span>
+        ))}
+        {areaData && (
+          <>
+            <span className="flex items-center gap-1.5 text-[10px] text-lab-muted">
+              <span className="h-2.5 w-2.5 rounded-sm bg-emerald-400/40" /> Uᵣ (resiliencia)
+            </span>
+            <span className="flex items-center gap-1.5 text-[10px] text-lab-muted">
+              <span className="h-2.5 w-2.5 rounded-sm bg-amber-400/25" /> Uₜ (tenacidad)
+            </span>
+          </>
+        )}
+        {bundles.length === 0 && (
+          <span className="text-[10px] text-lab-muted">Sin probetas válidas para mostrar.</span>
+        )}
+      </div>
     </div>
   );
 }
 
-// Dado un bundle, calcula el desplazamiento máximo ya alcanzado (dL o dLscrew) según epsNow
 function computeDisplacementLimit(b: CurveBundle, complianceOn: boolean): number {
   if (b.full.length === 0) return 0;
   const idx = lastIndexForEps(b.full, b.epsNow);
